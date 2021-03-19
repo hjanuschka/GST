@@ -16,8 +16,8 @@ var playing bool
 func main() {
 
 	p := `
-		compositor  async-handling=true  sync=true latency=5000000000  name=videomix ! queue ! timeoverlay !  tee name=vo  
-		audiomixer  async-handling=true sync=true  latency=5000000000   name=audiomix async=true ! queue !   tee name=au 
+		compositor background=black operator=2   async-handling=true  sync=true latency=5000000000  name=videomix !  timeoverlay !  clockoverlay halignment=right valignment=center text="Scheduler" shaded-background=true font-desc="Sans, 12" !  tee name=vo  
+		audiomixer  async-handling=true sync=true  latency=5000000000   name=audiomix async=true !    tee name=au 
 
 	
 
@@ -26,7 +26,7 @@ func main() {
 				! queue ! videoconvert ! videoscale ! videorate
 				!   x264enc cabac=false  key-int-max=50 quantizer=0  pass=0 speed-preset=ultrafast  tune=zerolatency bitrate=8000   byte-stream=true ! video/x-h264,width=1920,height=1080,pixel-aspect-ratio=1/1,framerate=25/1,format=RGBA,profile=constrained-baseline ! hls.video
 		au. 
-				! audioconvert
+				! queue ! audioconvert
 				! audiorate
 				! audioresample
 				! audio/x-raw, rate=44100, layout=interleaved, format=F32LE, channels=2 ! avenc_aac bitrate=128000 ac=2
@@ -36,11 +36,7 @@ func main() {
 
 		audiotestsrc is-live=true wave=1  volume=0.0 !  audioconvert ! audioresample !  audio/x-raw,format=S32LE,rate=44100,channels=2 ! audiomix.
 		videotestsrc is-live=true ! videoconvert !  video/x-raw,width=1920,height=1080,pixel-aspect-ratio=1/1,framerate=25/1,format=RGBA,profile=constrained-baseline ! videomix.
-		
-
-
-		
-	
+		filesrc  name=bgloop location="1.mp4" ! decodebin ! videoconvert ! videoscale ! videorate ! video/x-raw,width=1920,height=1080,pixel-aspect-ratio=1/1,framerate=25/1,format=RGBA,profile=constrained-baseline ! videomix.
 				`
 	gst.Init(nil)
 
@@ -59,8 +55,23 @@ func main() {
 
 	pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "PLAYING")
 
+	// //m, _ := pipeline.GetElementByName("bgloop")
+	// pipeline.GetBus().AddWatch(func(msg *gst.Message) bool {
+	// 	if msg.Source() == "bgloop" {
+
+	// 		if msg.Type() == gst.MessageEOS {
+	// 			fmt.Printf("LOOP BUS: %s - %s - %s\n", msg.Type(), msg.Source(), msg.TypeName())
+	// 			el, _ := pipeline.GetElementByName("bgloop")
+	// 			el.SendEvent(gst.NewSeekEvent(1.0, gst.FormatTime, gst.SeekFlagFlush, gst.SeekTypeSet, 2000000000, gst.SeekTypeNone, int64(gst.ClockTimeNone)))
+	// 		}
+
+	// 	}
+	// 	fmt.Println(msg)
+	// 	return true
+	// })
+
 	go func() {
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Second * 5)
 		AddNewUridecodeBin(pipeline)
 
 	}()
@@ -82,15 +93,24 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 
 	uridecodebin := els[0]
 	uridecodebin.Set("name", "dynamic1")
-	uridecodebin.Set("uri", "https://mediaviod-bitmovin.krone.at/nogeo/videos/2021/03/19/87f2daf66efaf16-210319_MomentMal_29Min_web/stream.m3u8")
+	uridecodebin.Set("uri", "https://mediaviod-bitmovin.krone.at/nogeo/videos/2021/03/18/8041869d52e6476-210318_HerzigKochen_Kabeljau_Windbeutel/stream.m3u8")
 	uridecodebin.Set("sync", false)
 	uridecodebin.Set("async", true)
+	uridecodebin.Set("async-handling", true)
 	uridecodebin.SetState(gst.StatePaused)
 
 	pipeline.Add(uridecodebin)
 
 	//alreadyRun := false
 	uridecodebin.Connect("pad-added", func(_ *gst.Element, srcPad *gst.Pad) {
+		cur := time.Now().Local()
+		future := time.Now().Add(time.Second * 30)
+
+		diff := future.Sub(cur)
+		fmt.Println(diff)
+
+		fmt.Println("...PAD INCOMMING")
+		srcPad.SetOffset(diff.Nanoseconds())
 		var isAudio, isVideo bool
 		caps := srcPad.GetCurrentCaps()
 		for i := 0; i < caps.GetSize(); i++ {
@@ -113,17 +133,18 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 			videoconvert := video[0]
 			videoscale := video[1]
 
+			videoconvertSink := videoconvert.GetStaticPad("sink")
+			srcPad.Link(videoconvertSink)
+			uridecodebin.Link(videoconvert)
+			videoconvert.Link(videoscale)
+
+			//video/x-h264, stream-format=(string)avc, pixel-aspect-ratio=(fraction)1/1, width=(int)1280, height=(int)720, framerate=(fraction)25/1, chroma-format=(string)4:2:0, bit-depth-luma=(uint)8, bit-depth-chroma=(uint)8, parsed=(boolean)true, alignment=(string)au, profile=(string)constrained-baseline, level=(string)3.1, codec_data=(buffer)0142c01fffe100196742c01fd9805005bb011000000300100000030328f183268001000568c9632c80 in anything we support
+
 			videomixer, err := pipeline.GetElementByName("videomix")
 			if err != nil {
 				panic(err)
 			}
-			videoconvertSink := videoconvert.GetStaticPad("sink")
-			srcPad.Link(videoconvertSink)
-			uridecodebin.Link(videoconvert)
-			videoconvert.LinkFiltered(videoscale, gst.NewCapsFromString("video/x-raw,width=1920,height=1080"))
-
-			//video/x-h264, stream-format=(string)avc, pixel-aspect-ratio=(fraction)1/1, width=(int)1280, height=(int)720, framerate=(fraction)25/1, chroma-format=(string)4:2:0, bit-depth-luma=(uint)8, bit-depth-chroma=(uint)8, parsed=(boolean)true, alignment=(string)au, profile=(string)constrained-baseline, level=(string)3.1, codec_data=(buffer)0142c01fffe100196742c01fd9805005bb011000000300100000030328f183268001000568c9632c80 in anything we support
-			videoscale.LinkFiltered(videomixer, gst.NewCapsFromString("video/x-raw,format=I420,width=1920,height=1080,interlace-mode=progressive,pixel-aspect-ratio=1/1"))
+			videoscale.LinkFiltered(videomixer, gst.NewCapsFromString("video/x-raw,width=1920,height=1080"))
 
 			fmt.Println("Video Added")
 			pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "VIDEOWORKS")
@@ -141,11 +162,6 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 			audioresample := audio[2]
 			volume := audio[3]
 
-			audiomixer, err := pipeline.GetElementByName("audiomix")
-			if err != nil {
-				panic(err)
-			}
-
 			audioconvertSink := audioconvert.GetStaticPad("sink")
 			srcPad.Link(audioconvertSink)
 
@@ -158,13 +174,18 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 			e1 = audioresample.Link(volume)
 			fmt.Println(e1)
 
+			audiomixer, err := pipeline.GetElementByName("audiomix")
+			if err != nil {
+				panic(err)
+			}
 			e2 := volume.Link(audiomixer)
 			fmt.Println(e2)
 			fmt.Println("Audio Added")
+
 			//uridecodebin.SetState(gst.StatePlaying)
-			for _, e := range audio {
-				e.SyncStateWithParent()
-			}
+			// for _, e := range audio {
+			// 	e.SyncStateWithParent()
+			// }
 			uridecodebin.SyncStateWithParent()
 			pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "NOWFROZEN")
 
