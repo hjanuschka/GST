@@ -16,8 +16,8 @@ var playing bool
 func main() {
 
 	p := `
-		compositor  async-handling=true  sync=true latency=5000000000  name=videomix !  tee name=vo 
-		audiomixer  async-handling=true sync=true  latency=5000000000   name=audiomix async=true !   tee name=au
+		compositor  async-handling=true  sync=true latency=5000000000  name=videomix ! queue ! timeoverlay !  tee name=vo  
+		audiomixer  async-handling=true sync=true  latency=5000000000   name=audiomix async=true ! queue !   tee name=au 
 
 	
 
@@ -34,9 +34,10 @@ func main() {
                 ! hls.audio
 
 
-		audiotestsrc is-live=true wave=1  volume=0.1 !  audioconvert ! audioresample !  audio/x-raw,format=S32LE,rate=44100,channels=2 ! audiomix.
+		audiotestsrc is-live=true wave=1  volume=0.0 !  audioconvert ! audioresample !  audio/x-raw,format=S32LE,rate=44100,channels=2 ! audiomix.
 		videotestsrc is-live=true ! videoconvert !  video/x-raw,width=1920,height=1080,pixel-aspect-ratio=1/1,framerate=25/1,format=RGBA,profile=constrained-baseline ! videomix.
 		
+
 
 		
 	
@@ -59,7 +60,7 @@ func main() {
 	pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "PLAYING")
 
 	go func() {
-		time.Sleep(time.Second * 10)
+		time.Sleep(time.Second * 1)
 		AddNewUridecodeBin(pipeline)
 
 	}()
@@ -81,7 +82,7 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 
 	uridecodebin := els[0]
 	uridecodebin.Set("name", "dynamic1")
-	uridecodebin.Set("uri", "https://bitcdn-kronehit.bitmovin.com/v2/hls/chunklist_b3128000.m3u8")
+	uridecodebin.Set("uri", "https://mediaviod-bitmovin.krone.at/nogeo/videos/2021/03/19/87f2daf66efaf16-210319_MomentMal_29Min_web/stream.m3u8")
 	uridecodebin.Set("sync", false)
 	uridecodebin.Set("async", true)
 	uridecodebin.SetState(gst.StatePaused)
@@ -121,6 +122,7 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 			uridecodebin.Link(videoconvert)
 			videoconvert.LinkFiltered(videoscale, gst.NewCapsFromString("video/x-raw,width=1920,height=1080"))
 
+			//video/x-h264, stream-format=(string)avc, pixel-aspect-ratio=(fraction)1/1, width=(int)1280, height=(int)720, framerate=(fraction)25/1, chroma-format=(string)4:2:0, bit-depth-luma=(uint)8, bit-depth-chroma=(uint)8, parsed=(boolean)true, alignment=(string)au, profile=(string)constrained-baseline, level=(string)3.1, codec_data=(buffer)0142c01fffe100196742c01fd9805005bb011000000300100000030328f183268001000568c9632c80 in anything we support
 			videoscale.LinkFiltered(videomixer, gst.NewCapsFromString("video/x-raw,format=I420,width=1920,height=1080,interlace-mode=progressive,pixel-aspect-ratio=1/1"))
 
 			fmt.Println("Video Added")
@@ -149,14 +151,14 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 
 			uridecodebin.Link(audioconvert)
 
-			e1 := audioconvert.LinkFiltered(audiorate, gst.NewCapsFromString("audio/x-raw,format=S32LE,rate=44100,channels=2"))
+			e1 := audioconvert.Link(audiorate)
 			fmt.Println(e1)
 			e1 = audiorate.Link(audioresample)
 			fmt.Println(e1)
 			e1 = audioresample.Link(volume)
 			fmt.Println(e1)
 
-			e2 := volume.LinkFiltered(audiomixer, gst.NewCapsFromString("audio/x-raw,format=S32LE,rate=44100,channels=2"))
+			e2 := volume.Link(audiomixer)
 			fmt.Println(e2)
 			fmt.Println("Audio Added")
 			//uridecodebin.SetState(gst.StatePlaying)
