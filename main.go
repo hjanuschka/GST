@@ -103,8 +103,9 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 
 	uridecodebin := els[0]
 	uridecodebin.Set("name", "dynamic1")
+	//uridecodebin.Set("uri", "file:///Users/hjanuschka/pla/1.mp4")
 	uridecodebin.Set("uri", "https://mediaviod-bitmovin.krone.at/nogeo/videos/2021/03/19/6adb78babd2fe95-210319_Adabei_Prime_24min_web/stream.m3u8")
-	uridecodebin.Set("sync", false)
+	uridecodebin.Set("sync", true)
 	uridecodebin.Set("async", true)
 	uridecodebin.Set("async-handling", true)
 	uridecodebin.SetState(gst.StatePaused)
@@ -112,8 +113,10 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 	bin.Add(uridecodebin)
 
 	pipeline.Add(bin.Element)
-	glib.TimeoutAdd(20000, func() {
+	glib.TimeoutAdd(40000, func() {
 		fmt.Println("Going to Remove Element")
+		s := bin.GetState()
+		fmt.Println(s)
 		pipeline.Remove(bin.Element)
 
 		vm, _ := pipeline.GetElementByName("videomix")
@@ -218,6 +221,33 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 
 			fmt.Println("Video Added")
 			pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "VIDEOWORKS")
+			srcPad.AddProbe(gst.PadProbeTypeEventDownstream, func(p *gst.Pad, ppi *gst.PadProbeInfo) gst.PadProbeReturn {
+				evnt := ppi.GetEvent()
+				fmt.Println(evnt.Type() == gst.EventTypeEOS)
+
+				pos := gst.NewPositionQuery(gst.FormatTime)
+				if ok := bin.Query(pos); !ok {
+					//fmt.Println("Failed to query position from pipeline")
+					return gst.PadProbePass
+				}
+
+				dur := gst.NewDurationQuery(gst.FormatTime)
+				if ok := bin.Query(dur); !ok {
+					fmt.Println("Failed to query duration from pipeline")
+					return gst.PadProbePass
+				}
+
+				_, posVal := pos.ParsePosition() //  If either of the above queries failed, these values
+				_, durVal := dur.ParseDuration() //  will be 0.
+				posDur := time.Duration(posVal) * time.Nanosecond
+				durDur := time.Duration(durVal) * time.Nanosecond
+
+				// currentTimeCode.setCode(posDur)
+
+				fmt.Println("BIN POS:", posDur, "/", durDur)
+
+				return gst.PadProbePass
+			})
 
 		}
 		if isAudio {
@@ -231,7 +261,7 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 			audiorate := audio[1]
 			audioresample := audio[2]
 			volume := audio[3]
-
+			volume.Set("name", "dvolume1")
 			audioconvertSink := audioconvert.GetStaticPad("sink")
 			srcPad.Link(audioconvertSink)
 			blockPadAudio = srcPad
