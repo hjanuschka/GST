@@ -56,19 +56,12 @@ func main() {
 	pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "PLAYING")
 
 	// //m, _ := pipeline.GetElementByName("bgloop")
-	// pipeline.GetBus().AddWatch(func(msg *gst.Message) bool {
-	// 	if msg.Source() == "bgloop" {
-
-	// 		if msg.Type() == gst.MessageEOS {
-	// 			fmt.Printf("LOOP BUS: %s - %s - %s\n", msg.Type(), msg.Source(), msg.TypeName())
-	// 			el, _ := pipeline.GetElementByName("bgloop")
-	// 			el.SendEvent(gst.NewSeekEvent(1.0, gst.FormatTime, gst.SeekFlagFlush, gst.SeekTypeSet, 2000000000, gst.SeekTypeNone, int64(gst.ClockTimeNone)))
-	// 		}
-
-	// 	}
-	// 	fmt.Println(msg)
-	// 	return true
-	// })
+	pipeline.GetBus().AddWatch(func(msg *gst.Message) bool {
+		if msg.Source() == "mybin1" || msg.Source() == "dynamic1" {
+			fmt.Println(msg)
+		}
+		return true
+	})
 
 	go func() {
 		time.Sleep(time.Second * 5)
@@ -102,7 +95,7 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 	//  ! volume volume=1.0
 	//  ! audiomix.
 	//var sinkPad *gst.Pad
-	bin := gst.NewBin("")
+	bin := gst.NewBin("mybin1")
 	var blockPadVideo *gst.Pad
 	var blockPadAudio *gst.Pad
 
@@ -110,7 +103,7 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 
 	uridecodebin := els[0]
 	uridecodebin.Set("name", "dynamic1")
-	uridecodebin.Set("uri", "https://mediaviod-bitmovin.krone.at/nogeo/videos/2021/03/18/8041869d52e6476-210318_HerzigKochen_Kabeljau_Windbeutel/stream.m3u8")
+	uridecodebin.Set("uri", "https://mediaviod-bitmovin.krone.at/nogeo/videos/2021/03/19/6adb78babd2fe95-210319_Adabei_Prime_24min_web/stream.m3u8")
 	uridecodebin.Set("sync", false)
 	uridecodebin.Set("async", true)
 	uridecodebin.Set("async-handling", true)
@@ -119,43 +112,67 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 	bin.Add(uridecodebin)
 
 	pipeline.Add(bin.Element)
-	glib.TimeoutAdd(10000, func() {
+	glib.TimeoutAdd(20000, func() {
+		fmt.Println("Going to Remove Element")
+		pipeline.Remove(bin.Element)
+
+		vm, _ := pipeline.GetElementByName("videomix")
+		pads, _ := vm.GetSinkPads()
+		for x, v := range pads {
+			fmt.Printf("XPAD: %d\n", x)
+			fmt.Printf("%#v\n", v)
+			//fmt.Printf("%#v\n", v.IsLinked())
+			if v.IsLinked() == false {
+				vm.RemovePad(v)
+			}
+		}
+		vm, _ = pipeline.GetElementByName("audiomix")
+		pads, _ = vm.GetSinkPads()
+		for x, v := range pads {
+			fmt.Printf("XPAD: %d\n", x)
+			fmt.Printf("%#v\n", v)
+			//fmt.Printf("%#v\n", v.IsLinked())
+			if v.IsLinked() == false {
+				vm.RemovePad(v)
+			}
+		}
+		pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "AFTER_UNLINK")
 
 		//pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "AFTER_UNLINK")
-		blockPadVideo.AddProbe(gst.PadProbeTypeBlockDownstream, func(self *gst.Pad, info *gst.PadProbeInfo) gst.PadProbeReturn {
-			fmt.Println("VIDEO PAD IS BLOCKED NOW")
-			pipeline.Remove(bin.Element)
+		// blockPadVideo.AddProbe(gst.PadProbeTypeBlockDownstream, func(self *gst.Pad, info *gst.PadProbeInfo) gst.PadProbeReturn {
+		// 	fmt.Println("VIDEO PAD IS BLOCKED NOW")
+		// 	pipeline.Remove(bin.Element)
 
-			vm, _ := pipeline.GetElementByName("videomix")
-			pads, _ := vm.GetSinkPads()
-			for x, v := range pads {
-				fmt.Printf("XPAD: %d\n", x)
-				fmt.Printf("%#v\n", v)
-				//fmt.Printf("%#v\n", v.IsLinked())
-				if v.IsLinked() == false {
-					vm.RemovePad(v)
-				}
-			}
-			vm, _ = pipeline.GetElementByName("audiomix")
-			pads, _ = vm.GetSinkPads()
-			for x, v := range pads {
-				fmt.Printf("XPAD: %d\n", x)
-				fmt.Printf("%#v\n", v)
-				//fmt.Printf("%#v\n", v.IsLinked())
-				if v.IsLinked() == false {
-					vm.RemovePad(v)
-				}
-			}
-
-			return gst.PadProbeOK
-		})
+		// 	vm, _ := pipeline.GetElementByName("videomix")
+		// 	pads, _ := vm.GetSinkPads()
+		// 	for x, v := range pads {
+		// 		fmt.Printf("XPAD: %d\n", x)
+		// 		fmt.Printf("%#v\n", v)
+		// 		//fmt.Printf("%#v\n", v.IsLinked())
+		// 		if v.IsLinked() == false {
+		// 			vm.RemovePad(v)
+		// 		}
+		// 	}
+		// 	vm, _ = pipeline.GetElementByName("audiomix")
+		// 	pads, _ = vm.GetSinkPads()
+		// 	for x, v := range pads {
+		// 		fmt.Printf("XPAD: %d\n", x)
+		// 		fmt.Printf("%#v\n", v)
+		// 		//fmt.Printf("%#v\n", v.IsLinked())
+		// 		if v.IsLinked() == false {
+		// 			vm.RemovePad(v)
+		// 		}
+		// 	}
+		// 	pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "AFTER_UNLINK")
+		// 	return gst.PadProbeOK
+		// })
 	})
 
 	bin.SetState(gst.StatePaused)
 	//alreadyRun := false
 	uridecodebin.Connect("pad-added", func(_ *gst.Element, srcPad *gst.Pad) {
 		cur := time.Now().Local()
-		future := time.Now().Add(time.Second * 2)
+		future := time.Now().Add(time.Second * 10)
 
 		diff := future.Sub(cur)
 		fmt.Println(diff)
