@@ -36,10 +36,10 @@ func main() {
 
 		audiotestsrc is-live=true wave=1  volume=0.0 !  audioconvert ! audioresample !  audio/x-raw,format=S32LE,rate=44100,channels=2 ! audiomix.
 		videotestsrc is-live=true ! videoconvert !  video/x-raw,width=1920,height=1080,pixel-aspect-ratio=1/1,framerate=25/1,format=RGBA,profile=constrained-baseline ! videomix.
-		filesrc  name=bgloop location="1.mp4" ! decodebin ! videoconvert ! videoscale ! videorate ! video/x-raw,width=1920,height=1080,pixel-aspect-ratio=1/1,framerate=25/1,format=RGBA,profile=constrained-baseline ! videomix.
+		
 				`
 	gst.Init(nil)
-
+	//filesrc  name=bgloop location="1.mp4" ! decodebin ! videoconvert ! videoscale ! videorate ! video/x-raw,width=1920,height=1080,pixel-aspect-ratio=1/1,framerate=25/1,format=RGBA,profile=constrained-baseline ! videomix.
 	mainLoop := glib.NewMainLoop(glib.MainContextDefault(), false)
 	pipelineString := p
 
@@ -73,7 +73,20 @@ func main() {
 	go func() {
 		time.Sleep(time.Second * 5)
 		AddNewUridecodeBin(pipeline)
+		// time.Sleep(time.Second * 10)
 
+		// mixer, _ := pipeline.GetElementByName("dynamic1")
+		// mixer.GetBus().AddSignalWatch()
+		// mixer.SendEvent(gst.NewEOSEvent())
+		// // pads, _ := mixer.GetSrcPads()
+		// for _, pa := range pads {
+		// 	paa := mixer.RemovePad(pa)
+		// 	fmt.Printf("%#v \n", paa)
+
+		// }
+
+		// fmt.Println("REMOVED")
+		// pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "AFTERREMOVE")
 	}()
 
 	mainLoop.Run()
@@ -88,6 +101,10 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 	//  ! audioresample
 	//  ! volume volume=1.0
 	//  ! audiomix.
+	//var sinkPad *gst.Pad
+	bin := gst.NewBin("")
+	var blockPadVideo *gst.Pad
+	var blockPadAudio *gst.Pad
 
 	els, _ := gst.NewElementMany("uridecodebin", "videoconvert", "videoscale", "audioconvert", "audiorate", "audioresample", "volume")
 
@@ -99,12 +116,46 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 	uridecodebin.Set("async-handling", true)
 	uridecodebin.SetState(gst.StatePaused)
 
-	pipeline.Add(uridecodebin)
+	bin.Add(uridecodebin)
 
+	pipeline.Add(bin.Element)
+	glib.TimeoutAdd(10000, func() {
+
+		//pipeline.DebugBinToDotFile(gst.DebugGraphShowAll, "AFTER_UNLINK")
+		blockPadVideo.AddProbe(gst.PadProbeTypeBlockDownstream, func(self *gst.Pad, info *gst.PadProbeInfo) gst.PadProbeReturn {
+			fmt.Println("VIDEO PAD IS BLOCKED NOW")
+			pipeline.Remove(bin.Element)
+
+			vm, _ := pipeline.GetElementByName("videomix")
+			pads, _ := vm.GetSinkPads()
+			for x, v := range pads {
+				fmt.Printf("XPAD: %d\n", x)
+				fmt.Printf("%#v\n", v)
+				//fmt.Printf("%#v\n", v.IsLinked())
+				if v.IsLinked() == false {
+					vm.RemovePad(v)
+				}
+			}
+			vm, _ = pipeline.GetElementByName("audiomix")
+			pads, _ = vm.GetSinkPads()
+			for x, v := range pads {
+				fmt.Printf("XPAD: %d\n", x)
+				fmt.Printf("%#v\n", v)
+				//fmt.Printf("%#v\n", v.IsLinked())
+				if v.IsLinked() == false {
+					vm.RemovePad(v)
+				}
+			}
+
+			return gst.PadProbeOK
+		})
+	})
+
+	bin.SetState(gst.StatePaused)
 	//alreadyRun := false
 	uridecodebin.Connect("pad-added", func(_ *gst.Element, srcPad *gst.Pad) {
 		cur := time.Now().Local()
-		future := time.Now().Add(time.Second * 30)
+		future := time.Now().Add(time.Second * 2)
 
 		diff := future.Sub(cur)
 		fmt.Println(diff)
@@ -126,7 +177,7 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 			//audio/x-raw, format=(string)F32LE, layout=(string)non-interleaved, rate=(int)48000, channels=(int)2, channel-mask=(bitmask)0x0000000000000003 in anything we support
 
 			video, _ := gst.NewElementMany("videoconvert", "videoscale")
-			pipeline.AddMany(video...)
+			bin.AddMany(video...)
 			for _, e := range video {
 				e.SyncStateWithParent()
 			}
@@ -135,6 +186,8 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 
 			videoconvertSink := videoconvert.GetStaticPad("sink")
 			srcPad.Link(videoconvertSink)
+			blockPadVideo = srcPad
+			// sinkPad = srcPad
 			uridecodebin.Link(videoconvert)
 			videoconvert.Link(videoscale)
 
@@ -153,7 +206,7 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 		if isAudio {
 
 			audio, _ := gst.NewElementMany("audioconvert", "audiorate", "audioresample", "volume")
-			pipeline.AddMany(audio...)
+			bin.AddMany(audio...)
 			for _, e := range audio {
 				e.SyncStateWithParent()
 			}
@@ -164,6 +217,7 @@ func AddNewUridecodeBin(pipeline *gst.Pipeline) *gst.Pipeline {
 
 			audioconvertSink := audioconvert.GetStaticPad("sink")
 			srcPad.Link(audioconvertSink)
+			blockPadAudio = srcPad
 
 			uridecodebin.Link(audioconvert)
 
